@@ -1,0 +1,9 @@
+anthropic
+chromadb
+sentence-transformers
+langchain
+langchain-community
+langchain-text-splitters
+pypdf
+gradio
+numpy
