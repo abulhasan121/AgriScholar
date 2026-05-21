@@ -128,7 +128,7 @@ Answer + Key Points + Cited Sources + Timing trace
 ## 🚀 Running Locally
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/AgriScholar.git
+git clone https://github.com/abulhasan121/AgriScholar.git
 cd AgriScholar
 pip install -r requirements.txt
 export ANTHROPIC_API_KEY=sk-ant-...
