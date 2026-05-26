@@ -1,72 +1,224 @@
-# 🌿 AgriScholar — Agricultural Research Intelligence
+# AgriScholar — Agricultural Research Intelligence
 
 **Developed by Shah Md Abul Hasan**
 
-AgriScholar is a semantic retrieval system for exploring agricultural research literature. Upload your own research PDFs and ask natural language questions across them. Every answer is grounded in the source documents and cites the exact paper and page number it came from.
+AgriScholar is a semantic retrieval system designed for agricultural research literature exploration. Users can upload their own research papers and ask natural language questions across them. Every response is grounded in the uploaded documents and includes source citations with page references for traceability.
+
+The system combines Retrieval-Augmented Generation (RAG), semantic search, query expansion, reranking, and large language models to create an intelligent agricultural research assistant capable of answering domain-specific scientific questions from private document collections.
 
 ---
 
-## 🧠 How It Works — RAG Pipeline
+# System Overview
 
-AgriScholar is built on **Retrieval-Augmented Generation (RAG)**, a technique that grounds large language model outputs in a private knowledge base — in this case, your uploaded research papers. Rather than relying on the model's parametric memory, RAG retrieves relevant passages at query time and feeds them as context to the LLM, making answers accurate, traceable, and up-to-date with your documents.
+AgriScholar follows a modern Retrieval-Augmented Generation (RAG) architecture.
 
-The system implements six RAG principles:
+Instead of relying entirely on the language model's internal knowledge, the system retrieves relevant passages from uploaded papers at query time and injects them into the prompt context. This produces answers that are:
+- Grounded in source documents
+- Traceable and citable
+- More accurate for specialized agricultural terminology
+- Updatable without retraining the model
 
----
-
-### Principle 1 — Smart Document Processing
-
-Raw PDFs are loaded with **PyPDF** and split into overlapping 1 000-character chunks using LangChain's `RecursiveCharacterTextSplitter` with a 200-character overlap. The splitter respects natural text boundaries (paragraphs → sentences → words) before splitting mid-word. A noise filter removes chunks shorter than 80 characters, pure number sequences, and reference-list fragments — ensuring only meaningful prose enters the index.
-
-```
-PDF → PyPDF → RecursiveCharacterTextSplitter → noise filter → embeddings → ChromaDB
-```
-
----
-
-### Principle 2 — Query Expansion
-
-Short or vague queries often miss relevant chunks because the vocabulary doesn't match the paper's terminology. To close this gap, the user's question is sent to **Claude**, which generates three semantically related query variants using agricultural domain knowledge.
-
-**Example:**
-> User asks: *"weed control"*
-> Expanded to: *"herbicide application methods"*, *"integrated weed management strategies"*, *"chemical vs mechanical weed suppression"*
-
-All four queries are sent to the vector store in parallel, dramatically improving recall without any extra user effort.
+The pipeline combines:
+- Dense vector retrieval
+- Query expansion
+- Cross-encoder reranking
+- Context-aware prompt assembly
+- Claude Sonnet generation
 
 ---
 
-### Principle 3 — Vector Search with Multi-Query Fusion
+# RAG Pipeline
 
-Each query is encoded into a 384-dimensional dense vector using **`sentence-transformers/all-MiniLM-L6-v2`** and compared to all indexed chunks via **cosine similarity** in **ChromaDB**. Embeddings are L2-normalized before storage so cosine distance equals dot product — fast and accurate.
-
-Results from all four queries are pooled into a single candidate set, deduplicated by chunk identity, and the highest similarity score per chunk is kept. This multi-query fusion ensures that a chunk matching any of the expanded queries is surfaced.
-
-```
-query → normalize → cosine search → top-10 per query → pool → deduplicate → top-10 candidates
-```
-
-**Model:** `all-MiniLM-L6-v2` — 384 dimensions, 22M parameters, optimized for semantic similarity.
-
----
-
-### Principle 4 — Cross-Encoder Reranking
-
-Bi-encoder vector search is fast but approximate — it scores query and document independently. For higher accuracy, the top-10 candidates are passed through a **cross-encoder** (`cross-encoder/ms-marco-MiniLM-L-6-v2`), which reads the query and each document *together* in a single forward pass, attending to their interaction directly.
-
-This two-stage retrieval pattern (fast bi-encoder recall → accurate cross-encoder precision) is a well-established RAG best practice. The cross-encoder is especially effective for agricultural domain language where subtle terminology differences (e.g. "herbicide tolerance" vs "herbicide resistance") carry significant meaning.
-
-```
-10 candidates → cross-encoder scores each (query, chunk) pair → ranked by relevance → top-5
+```text
+User Question
+      ↓
+Query Expansion
+      ↓
+Vector Embedding
+      ↓
+ChromaDB Similarity Search
+      ↓
+Multi-Query Fusion
+      ↓
+Cross-Encoder Reranking
+      ↓
+Context Assembly
+      ↓
+Claude Sonnet Generation
+      ↓
+Grounded Answer + Citations
 ```
 
 ---
 
-### Principle 5 — Context Window Management
+# Core Retrieval Principles
 
-The top-5 reranked chunks are assembled into a structured prompt with a hard cap of **6 000 characters**. Each chunk is prefixed with its source filename, page number, and relevance score — giving the LLM provenance information to produce grounded, citable answers.
+## 1. Smart Document Processing
 
-Chunks are inserted highest-score-first. If the budget is exceeded mid-chunk, the remainder is truncated gracefully rather than dropped entirely. This ensures the most relevant content always makes it into the context window.
+Uploaded PDFs are processed using PyPDF and LangChain document loaders.
+
+Documents are split into overlapping chunks using `RecursiveCharacterTextSplitter`:
+- Chunk size: 1,000 characters
+- Overlap: 200 characters
+
+The splitter prioritizes:
+1. Paragraph boundaries
+2. Sentence boundaries
+3. Word boundaries
+
+before splitting raw text.
+
+A preprocessing filter removes:
+- Very short fragments
+- Pure numeric sequences
+- Reference-list noise
+- Low-information chunks
+
+This improves retrieval quality by ensuring only meaningful scientific text enters the vector database.
+
+### Processing Pipeline
+
+```text
+PDF
+  ↓
+PyPDF Loader
+  ↓
+RecursiveCharacterTextSplitter
+  ↓
+Noise Filtering
+  ↓
+Embeddings
+  ↓
+ChromaDB
+```
+
+---
+
+## 2. Query Expansion
+
+Short user queries often fail because research papers may use different terminology than the user's wording.
+
+To improve recall, the original question is sent to Claude Sonnet, which generates three semantically related query variants using agricultural domain knowledge.
+
+### Example
+
+```text
+Original Query:
+"weed control"
+
+Expanded Queries:
+- herbicide application methods
+- integrated weed management strategies
+- chemical vs mechanical weed suppression
+```
+
+All expanded queries are searched in parallel.
+
+This increases retrieval robustness without requiring additional effort from the user.
+
+---
+
+## 3. Vector Search and Multi-Query Fusion
+
+Each query is encoded into a 384-dimensional embedding using:
+
+```text
+sentence-transformers/all-MiniLM-L6-v2
+```
+
+Embeddings are:
+- L2 normalized
+- Stored in ChromaDB
+- Compared using cosine similarity
+
+Each query retrieves the top matching chunks independently.
+
+The results are then:
+1. Pooled together
+2. Deduplicated
+3. Ranked by highest similarity score
+
+### Retrieval Flow
+
+```text
+query
+   ↓
+embedding generation
+   ↓
+cosine similarity search
+   ↓
+top-10 retrieval per query
+   ↓
+candidate pooling
+   ↓
+deduplication
+   ↓
+top candidates
+```
+
+### Embedding Model
+
+| Model | Details |
+|---|---|
+| all-MiniLM-L6-v2 | 384 dimensions, 22M parameters |
+
+The model was selected because it provides strong semantic similarity performance while remaining lightweight enough for CPU deployment.
+
+---
+
+## 4. Cross-Encoder Reranking
+
+Dense vector retrieval is efficient but approximate because query and document embeddings are generated independently.
+
+To improve precision, the top retrieved candidates are reranked using:
+
+```text
+cross-encoder/ms-marco-MiniLM-L-6-v2
+```
+
+Unlike bi-encoders, the cross-encoder reads the query and document together in a single forward pass, enabling direct interaction between terms.
+
+This improves retrieval quality for:
+- Agricultural terminology
+- Scientific phrasing
+- Context-sensitive language
+
+### Reranking Pipeline
+
+```text
+10 retrieved candidates
+        ↓
+cross-encoder scoring
+        ↓
+relevance ranking
+        ↓
+top-5 chunks
+```
+
+This two-stage retrieval architecture follows modern RAG best practices:
+- Fast recall via embeddings
+- Accurate ranking via cross-encoder
+
+---
+
+## 5. Context Window Management
+
+The top reranked chunks are assembled into a structured prompt before being sent to Claude Sonnet.
+
+Each chunk includes:
+- Source filename
+- Page number
+- Relevance score
+
+A strict 6,000-character budget is enforced to maintain generation quality and reduce hallucination risk.
+
+Chunks are inserted:
+1. Highest relevance first
+2. Until the context budget is reached
+
+If the limit is exceeded mid-chunk, the remaining text is truncated gracefully rather than discarded entirely.
+
+### Example Context Format
 
 ```python
 [Source 1: paper.pdf, Page 4, Score: 0.923]
@@ -78,86 +230,187 @@ Integrated weed management combines cultural, mechanical...
 
 ---
 
-### Principle 6 — Metadata Filtering
+## 6. Metadata Filtering
 
-An optional paper filter restricts all ChromaDB queries to a single source document using the `where` clause at query time. This enables precise per-paper questions ("What does *this* paper say about nitrogen?") without interference from other papers in the database — useful when cross-paper noise is undesirable.
+An optional metadata filter allows retrieval from a single selected paper.
+
+This is implemented using ChromaDB's `where` clause during query execution.
+
+This enables focused questions such as:
+
+```text
+"What does this paper say about nitrogen management?"
+```
+
+without interference from unrelated papers in the database.
 
 ---
 
-## 🔁 Full Pipeline at a Glance
+# End-to-End Pipeline Timing
 
-```
+```text
 User Question
      │
-     ▼  ~0.5s
-Query Expansion via Claude  ──►  4 queries total
+     ▼  ~0.5 s
+Query Expansion via Claude
      │
-     ▼  ~0.3s
-Vector Search (ChromaDB)  ──►  up to 40 candidates, deduplicated to 10
+     ▼  ~0.3 s
+Vector Search in ChromaDB
      │
-     ▼  ~0.2s
-Cross-Encoder Reranking  ──►  top 5 chunks
+     ▼  ~0.2 s
+Cross-Encoder Reranking
      │
      ▼
-Context Assembly (6 000-char budget, source headers)
+Context Assembly
      │
-     ▼  ~1–2s
+     ▼  ~1–2 s
 Claude Sonnet Generation
      │
      ▼
-Answer + Key Points + Cited Sources + Timing trace
+Grounded Response with Citations
 ```
 
 ---
 
-## 🛠️ Tech Stack
+# Tech Stack
 
 | Layer | Tool |
 |---|---|
-| Document loading | LangChain + PyPDF |
-| Text splitting | `RecursiveCharacterTextSplitter` |
-| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
-| Vector store | ChromaDB (cosine, normalized) |
-| Reranker | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
-| Query expansion & generation | Claude Sonnet 4 (Anthropic API) |
+| Document Loading | LangChain + PyPDF |
+| Text Splitting | RecursiveCharacterTextSplitter |
+| Embeddings | sentence-transformers/all-MiniLM-L6-v2 |
+| Vector Database | ChromaDB |
+| Similarity Metric | Cosine Similarity |
+| Reranker | cross-encoder/ms-marco-MiniLM-L-6-v2 |
+| Query Expansion | Claude Sonnet 4 |
+| Answer Generation | Claude Sonnet 4 |
 | Interface | Gradio |
 | Deployment | Hugging Face Spaces (Docker) |
 
 ---
 
-## 🚀 Running Locally
+# Running Locally
+
+## Clone Repository
 
 ```bash
 git clone https://github.com/abulhasan121/AgriScholar.git
 cd AgriScholar
+```
+
+## Install Dependencies
+
+```bash
 pip install -r requirements.txt
+```
+
+## Set API Key
+
+```bash
 export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+## Launch Application
+
+```bash
 python app.py
 ```
 
-Then open `http://localhost:7860` in your browser.
+Then open:
+
+```text
+http://localhost:7860
+```
 
 ---
 
-## ☁️ Hugging Face Space
+# Hugging Face Deployment
 
-The live demo is deployed at:
-**[huggingface.co/spaces/sh61309/AgriScholar](https://huggingface.co/spaces/sh61309/AgriScholar)**
+The live demo is deployed on Hugging Face Spaces:
 
-To run your own copy, fork the Space and add your `ANTHROPIC_API_KEY` as a Secret in Settings → Variables and Secrets.
+https://huggingface.co/spaces/sh61309/AgriScholar
 
----
-
-## 📌 Design Decisions & Limitations
-
-- **In-memory ChromaDB** — uploaded papers reset when the Space restarts. For persistence, a paid Space with disk storage or an external vector DB (Pinecone, Weaviate) would be needed.
-- **No multi-hop reasoning** — answers are grounded in single retrieved passages. Complex questions requiring synthesis across many sections may be incomplete.
-- **Context cap at 6 000 chars** — very long answers may be truncated. This is a deliberate tradeoff to maintain LLM output quality.
-- **Free-tier CPU** — embedding and reranking run on CPU, adding ~1s latency vs GPU.
+To deploy your own version:
+1. Fork the Space
+2. Add your `ANTHROPIC_API_KEY`
+3. Configure it under:
+   - Settings
+   - Variables and Secrets
 
 ---
 
-## 👤 Author
+# Design Decisions and Limitations
+
+## In-Memory Vector Database
+
+The current implementation uses in-memory ChromaDB storage.
+
+Uploaded documents are reset whenever the Hugging Face Space restarts.
+
+For persistence, future versions could integrate:
+- Pinecone
+- Weaviate
+- Persistent Chroma storage
+
+---
+
+## No Multi-Hop Reasoning
+
+The system primarily answers questions using single retrieved passages.
+
+Complex synthesis across multiple papers or sections may still be incomplete.
+
+---
+
+## Context Length Constraints
+
+The context window is capped at 6,000 characters.
+
+This tradeoff was intentionally selected to:
+- Improve response quality
+- Reduce hallucinations
+- Maintain low latency
+
+---
+
+## CPU-Based Inference
+
+The free-tier deployment runs entirely on CPU.
+
+This increases:
+- Embedding latency
+- Reranking latency
+
+GPU deployment would significantly improve response speed.
+
+---
+
+# Future Improvements
+
+Potential future extensions include:
+- Persistent vector database storage
+- Multi-document reasoning
+- Hybrid sparse + dense retrieval
+- Citation-aware answer generation
+- PDF highlighting and inline source previews
+- GPU acceleration
+- Fine-tuned agricultural embedding models
+
+---
+
+# Author
 
 **Shah Md Abul Hasan**
-Agricultural Research Intelligence · Built with LangChain, ChromaDB, Sentence Transformers & Claude API
+
+Built with:
+- LangChain
+- ChromaDB
+- Sentence Transformers
+- Claude API
+- Gradio
+
+---
+
+# License
+
+MIT License
